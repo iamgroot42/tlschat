@@ -97,20 +97,6 @@ string random_string(int length){
     return rand_str;
 }
 
-string generate_mutual_key(string alice, string bob){
-    string Kas = username_password[alice], Kbs = username_password[bob];
-    int a_length = alice.length(), b_length = bob.length();
-    string shared_key = "";
-    for(int i=0;i<Kas.length();++i){
-        shared_key = shared_key + char((int(Kas[i]) + int(alice[i%a_length])));
-    }
-    shared_key = shared_key + random_string(8);
-    for(int i=0;i<Kbs.length();++i){
-        shared_key = shared_key + char((int(Kbs[i]) + int(bob[i%b_length])));
-    }
-    return shared_key;
-}
-
 // Read registered accounts from file
 void populate_userlist(){
     fstream file(USER_FILENAME, ios::in);
@@ -266,7 +252,7 @@ void* per_user(void* void_connfd){
                 send_data("Malformed message!", connfd);
             }
         }
-        else if(!command.compare("/handshake") && logged_in){
+        else if(!command.compare("/CLIENT_HELLO") && logged_in){
             pch = strtok_r (NULL, " ", &STRTOK_SHARED);
             string to(pch);
             pch = strtok_r (NULL, " ", &STRTOK_SHARED);
@@ -282,7 +268,7 @@ void* per_user(void* void_connfd){
                 chat.push(make_pair(name_id[to], data)); // Push outgoing message to queue
             }
         }
-        else if(!command.compare("/check_ticket") && logged_in){
+        else if(!command.compare("/SERVER_HELLO") && logged_in){
             pch = strtok_r (NULL, " ", &STRTOK_SHARED);
             string to(pch);
             string data(STRTOK_SHARED);
@@ -290,16 +276,6 @@ void* per_user(void* void_connfd){
                 send_data("User is offline/doesn't exist!", connfd);
             }
             data = command + " " + id_name[connfd] + " " + data;
-            chat.push(make_pair(name_id[to], data)); // Push outgoing message to queue   
-        }
-        else if(!command.compare("/bob_receive") && logged_in){
-            pch = strtok_r (NULL, " ", &STRTOK_SHARED);
-            string to(pch);
-            string data(STRTOK_SHARED);
-            if (!is_online(name_id[to])){
-                send_data("User is offline/doesn't exist!", connfd);
-            }
-            data = command + " " + data;
             chat.push(make_pair(name_id[to], data)); // Push outgoing message to queue   
         }
         else if(!command.compare("/okay") && logged_in){
@@ -311,7 +287,7 @@ void* per_user(void* void_connfd){
             string data = command + " " + id_name[connfd];
             chat.push(make_pair(name_id[to], data)); // Push outgoing message to queue   
         }
-       else if(!command.compare("/negotiate") && logged_in){
+        else if(!command.compare("/PRE_MASTER_SECRET") && logged_in){
             try{
                 string iv(HARDCODED_IV);
                 pch = strtok_r(NULL, " ", &STRTOK_SHARED);

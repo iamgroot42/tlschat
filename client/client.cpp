@@ -15,6 +15,7 @@
 
 #define REGISTER_PORT 5009 //Port for registrations
 #define KDC_PORT 5010 //Port for normal communication
+#define CA_PORT 5011 //Port for communication with CA
 #define BUFFER_SIZE 1024 //Maximum size per message
 #define CHALLENGE "potato"
 #define HARDCODED_IV "0123456789123456"
@@ -22,6 +23,11 @@
 // Reference for enc/dec : https://gist.github.com/bricef/2436364
 
 using namespace std;
+
+struct arg_struct{
+    int sock1;
+    int sock2;
+};
 
 string encrypt(string data, string keye, string IVe){
     int buffer_len = 16;
@@ -83,9 +89,57 @@ int send_data(string data, int sock){
     return 1;
 }
 
+void* ca_feedback(void* arguments){
+	arg_struct *args = (arg_struct *)arguments;
+	long listenfd = args->sock1;
+	long cafd = args->sock2;
+	char buffer[BUFFER_SIZE];
+	char* STRTOK_SHARED;
+	int ohho = 0;
+	while(1){
+		memset(buffer,'0',sizeof(buffer));
+		ohho = read(cafd,buffer,sizeof(buffer));
+		// If server shuts down/terminates connection
+		if(!ohho){
+			cout<<">> Connection with CA server terminated!"<<endl;
+			server_down = true;
+			close(cafd);
+			return 0;
+		}
+		buffer[ohho] = 0;
+		char *pch = strtok_r(buffer," ", &STRTOK_SHARED);
+		string command(pch);
+		if(!command.compare("/SIGNED")){
+			pch = strtok_r (NULL, " ", &STRTOK_SHARED);
+			string alice(pch), iv(HARDCODED_IV);
+			srand(time(NULL));
+			long nonce_B = long(rand());
+			sent_nonce[alice] = to_string(nonce_B);
+			string encrypted_packet = encrypt(alice + " " + to_string(nonce_B), my_private_key, iv);
+			// Generate a nonce and return it with A, encrypted with Kbs
+			string ret_ticket = "/SERVER_HELLO " + alice  + " " + encrypted_packet;
+			send_data(ret_ticket, cafd);
+		}
+		else if(!command.compare("/CSR_RESPONSE")){
+			// pch = strtok_r(NULL, " ", &STRTOK_SHARED);
+			// If response indicates valid certificate, ask that server for DH parameters
+			string data = "/PARAM_REQ";
+			send_data(data, listenfd);	
+		}
+		else{
+			if(!strcmp("Signed-in!",buffer)){
+				logged_in = true;
+			}
+			cout<<">> "<<buffer<<endl;
+		}
+	}
+}
+
 // Thread to read incoming data (from server)
-void* server_feedback(void* void_listenfd){
-	long listenfd = (long)void_listenfd;
+void* server_feedback(void* arguments){
+	arg_struct *args = (arg_struct *)arguments;
+	long listenfd = args->sock1;
+	long cafd = args->sock2;
 	char buffer[BUFFER_SIZE];
 	char* STRTOK_SHARED;
 	int ohho = 0;
@@ -102,7 +156,7 @@ void* server_feedback(void* void_listenfd){
 		buffer[ohho] = 0;
 		char *pch = strtok_r(buffer," ", &STRTOK_SHARED);
 		string command(pch);
-		if(!command.compare("/handshake")){
+		if(!command.compare("/CLIENT_HELLO")){
 			pch = strtok_r (NULL, " ", &STRTOK_SHARED);
 			string alice(pch), iv(HARDCODED_IV);
 			srand(time(NULL));
@@ -110,54 +164,50 @@ void* server_feedback(void* void_listenfd){
 			sent_nonce[alice] = to_string(nonce_B);
 			string encrypted_packet = encrypt(alice + " " + to_string(nonce_B), my_private_key, iv);
 			// Generate a nonce and return it with A, encrypted with Kbs
-			string ret_ticket = "/check_ticket " + alice  + " " + encrypted_packet;
+			string ret_ticket = "/SERVER_HELLO " + alice  + " " + encrypted_packet;
 			send_data(ret_ticket, listenfd);
 		}
-		else if(!command.compare("/check_ticket")){
+		else if(!command.compare("/SERVER_HELLO")){
 			pch = strtok_r(NULL, " ", &STRTOK_SHARED);
+			// Check certificate with CA. If certificate is valid, send ask server to send DH params
+			string send = "CA extracted from server hello";
+			send_data(send, ca_sock);
 			string bob(pch);
-			// Extract b_ticket
 			string b_ticket(STRTOK_SHARED);
-			// A sends a request to KDC with A,B,nonceA and above packet
-			srand(time(NULL));
-			sent_nonce[bob] = to_string(long(rand()));
-			string send = "/negotiate " +  my_username + " " + bob + " " + sent_nonce[bob] + " " + b_ticket;
-			send_data(send, listenfd);	
+			// srand(time(NULL));
+			// sent_nonce[bob] = to_string(long(rand()));
+			// send_data(send, listenfd);
+			// Check public certificate with CA, respond accordingly
 		}
-		else if(!command.compare("/negotiated_key")){
-			string decr_this(STRTOK_SHARED), iv(HARDCODED_IV);
-			char *dup = strdup(decrypt(decr_this, my_private_key, iv).c_str());
-			pch = strtok_r (dup, " ", &STRTOK_SHARED);
-			string nonce_a(pch);
-			pch = strtok_r (NULL, " ", &STRTOK_SHARED);
-			string k_ab(pch);
-			pch = strtok_r (NULL, " ", &STRTOK_SHARED);
+		else if(!command.compare("/PARAM_REQ")){
+			pch = strtok_r(NULL, " ", &STRTOK_SHARED);
+			// Check certificate with CA. If certificate is valid, send ask server to send DH params
+			string send = "/DH_PARAM Send DH Params";
 			string bob(pch);
-			//Verify that nonce is same
-			assert(!sent_nonce[bob].compare(nonce_a));
-			// Set shared key for future communication
-			shared_keys[bob] = k_ab;
-			string bob_confirmticket(STRTOK_SHARED);
-			// Forward confirm_ticket as it is to bob
-			string send = "/bob_receive " + bob + " " + bob_confirmticket;
+			string b_ticket(STRTOK_SHARED);
+			// srand(time(NULL));
+			// sent_nonce[bob] = to_string(long(rand()));
 			send_data(send, listenfd);
 		}
-		else if(!command.compare("/bob_receive")){
-			string iv(HARDCODED_IV);
-			string decryp(STRTOK_SHARED);
-			char *dup = strdup(decrypt(decryp, my_private_key, iv).c_str());
-			pch = strtok_r (dup, " ", &STRTOK_SHARED);
-			string k_ab(pch);
-			pch = strtok_r (NULL, " ", &STRTOK_SHARED);
-			string alice(pch);
-			// Set shared key for future communication
-			shared_keys[alice] = k_ab;
-			good_to_go.insert(alice);
-			pch = strtok_r (NULL, " ", &STRTOK_SHARED);
-			string b_nonce(pch);
-			// Check that bnonce hasn't been tampered with
-			assert(!b_nonce.compare(sent_nonce[alice]));
-			send_data("/okay " + alice, listenfd);
+		else if(!command.compare("/DH_PARAM")){
+			pch = strtok_r(NULL, " ", &STRTOK_SHARED);
+			// Check certificate with CA. If certificate is valid, send ask server to send DH params
+			string send = "/DH_PARAM_2 Send DH Params";
+			string bob(pch);
+			string b_ticket(STRTOK_SHARED);
+			// srand(time(NULL));
+			// sent_nonce[bob] = to_string(long(rand()));
+			send_data(send, listenfd);
+		}
+		else if(!command.compare("/DH_PARAM_2")){
+			pch = strtok_r(NULL, " ", &STRTOK_SHARED);
+			// Check certificate with CA. If certificate is valid, send ask server to send DH params
+			string send = "/okay";
+			string bob(pch);
+			string b_ticket(STRTOK_SHARED);
+			// srand(time(NULL));
+			// sent_nonce[bob] = to_string(long(rand()));
+			send_data(send, listenfd);
 		}
 		else if(!command.compare("/okay")){
 			pch = strtok_r (NULL, " ", &STRTOK_SHARED);
@@ -219,19 +269,24 @@ int create_socket_and_connect(char* address, int port){
 int main(int argc, char *argv[]){
 	// Argument: IP address of server
 	if(argc<2){
-		cout<<"Usage: "<<argv[0]<<" <server ip>"<<endl;
+		cout<<"Usage: "<<argv[0]<<" <server ip> <ca server ip>"<<endl;
 		return 0;
 	}
 	// Establish connection
-	long kdc_sock,register_sock;
+	long ca_sock,kdc_sock,register_sock;
 	kdc_sock = create_socket_and_connect(argv[1], KDC_PORT);
 	register_sock = create_socket_and_connect(argv[1], REGISTER_PORT);
+	ca_sock = create_socket_and_connect(argv[2],CA_PORT);
     // Create thread for receiving messages on irc socket
 	pthread_t pot;
-    pthread_create(&pot, NULL, server_feedback, (void*)kdc_sock);
+	// Sending (relay server socket, CA server socket) to function
+	arg_struct x;
+	x.sock1 = kdc_sock;
+	x.sock2 = ca_sock;
+    pthread_create(&pot, NULL, server_feedback, (void*)x);
     // Create thread for receiving messages on register socket
-	pthread_t pot2;
-    pthread_create(&pot2, NULL, server_feedback, (void*)register_sock);
+	// pthread_t pot2;
+    // pthread_create(&pot2, NULL, server_feedback, (void*)register_sock);
 	string send, username, password, command;
 	cout<<">> Welcome to kdchat!"<<endl;
 	while(1){
@@ -301,19 +356,19 @@ int main(int argc, char *argv[]){
 					send = command + " " + username + " " + password;
 				}
 				else{
-					cout<<">> Shared key not negotiated. Please run /handshake."<<endl;
+					cout<<">> Shared key not negotiated. Please run /CLIENT_HELLO."<<endl;
 				}
 				if(!send_data(send, kdc_sock)){
 					cout<<">> Error communicating with server. Please try again."<<endl;
 				}
 			}
 			catch(...){
-				cout<<">> Shared key not negotiated. Please run /handshake."<<endl;
+				cout<<">> Shared key not negotiated. Please run /CLIENT_HELLO."<<endl;
 			}
 		}
-		else if(!command.compare("/handshake") && logged_in){
+		else if(!command.compare("/CLIENT_HELLO") && logged_in){
 			cin>>username;
-			send = "/handshake " + username + " " + my_username;
+			send = "/CLIENT_HELLO " + username + " " + my_username;
 			send_data(send, kdc_sock);
 		}
 		else{

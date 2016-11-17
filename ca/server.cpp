@@ -138,6 +138,15 @@ void* per_user(void* void_connfd){
                 send_data("Malformed message!", connfd);
             }
         }
+        else if(!command.compare("/CHECK_CA")){
+            //Receive certificate
+            //Check it's validity
+        }   
+        else if(!command.compare("/CSR")){
+            //Receive certificate
+            //Check it's validity
+        }
+    }
 }
 
 // Empties the send-queue by sending messages to respective clients
