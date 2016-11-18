@@ -1,7 +1,7 @@
 # iamgroot42
 
 all: client.c
-	gcc -pthread client.c -o client -lssl -lcrypto
+	gcc client.c -o client -lcrypto -lssl 
 	@echo Compiled!
 
 clean:
