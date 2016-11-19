@@ -10,10 +10,8 @@
 #include <arpa/inet.h>
 #include <mcrypt.h>
 
-#define KDC_PORT 5010 //Port for normal communication
+#define RELAY_PORT 5013 //Port for normal communication
 #define BUFFER_SIZE 1024 //Maximum size per message
-
-// Reference for enc/dec : https://gist.github.com/bricef/2436364
 
 using namespace std;
 
@@ -76,7 +74,20 @@ void* per_user(void* void_connfd){
         if(!command.compare("/identify")){
             pch = strtok_r (NULL, " ", &STRTOK_SHARED);
             string username(pch);
-            send_data("Error signing in!", connfd);
+            name_id[username] = connfd;
+            id_name[connfd] = username;
+            active_users.insert(connfd);
+            send_data("Identified as " + username + " !", connfd);
+        }
+        else if(!command.compare("/connect")){
+            pch = strtok_r (NULL, " ", &STRTOK_SHARED);
+            string destination(pch);
+            try{
+                send_data("/listen", name_id[destination]);
+            }
+            catch(...){
+                send_data("Requested user not online", connfd);
+            }
         }
         else if(!command.compare("/who")){
             send_data(online_users().c_str(), connfd);
@@ -113,7 +124,7 @@ int main(){
     memset(&serv_addr, '0', sizeof(serv_addr)); 
     serv_addr.sin_family = AF_INET;
     serv_addr.sin_addr.s_addr = htonl(INADDR_ANY);
-    serv_addr.sin_port = htons(KDC_PORT); 
+    serv_addr.sin_port = htons(RELAY_PORT); 
     bind(listenfd, (struct sockaddr*)&serv_addr, sizeof(serv_addr)); 
     listen(listenfd, 15);
     while(1){
