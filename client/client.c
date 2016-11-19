@@ -144,7 +144,8 @@ void* server_feedback(void* void_listenfd){
 	SSL_CTX *ctx;
 	//Start listening for incoming TLS connections
 	ctx = InitServerCTX(); //Initialize SSL
-	LoadCertificates(ctx, "temp_cert.pem", "temp_key.pem");
+	// LoadCertificates(ctx, "temp_cert.pem", "temp_key.pem");
+	LoadCertificates(ctx, "servercert.pem", "serverkey.pem");
 	server = OpenListener(TLS_PORT + 10);
 	printf("I am listening ;)\n");
 	struct sockaddr_in addr;
@@ -166,7 +167,7 @@ void* server_feedback(void* void_listenfd){
 
 
 int main(int argc, char *argv[]){
-	int server, relay, can_message = 0;
+	int server, ca, relay, ohho=0, can_message = 0;
 	char msg[BUFFER_SIZE];
 	char command[100];
 	int bytes;
@@ -175,8 +176,28 @@ int main(int argc, char *argv[]){
 		return 0;
 	}
 	relay = create_socket_and_connect(argv[1], RELAY_PORT);
+	ca = create_socket_and_connect(argv[1], CA_PORT);
 	pthread_t pot;
     pthread_create(&pot, NULL, server_feedback, (void*)relay);
+    // Generate a CSR, get it signed by CA
+	system("yes '' | openssl req -config openssl-server.cnf -newkey rsa:2048 -sha256 -nodes -out servercert.csr -outform PEM  >> /dev/null");
+	sleep(2);
+	FILE *fp = fopen("./servercert.csr","r");
+	char file_content[BUFFER_SIZE];
+	strcpy(msg,"/CSR ");
+	while(fgets(file_content, BUFFER_SIZE, (FILE*)fp)){
+		strcat(msg,file_content);
+	}
+	fclose(fp);
+	write(ca, msg, strlen(msg));
+	//Receive certificate
+	memset(msg,'0',sizeof(msg));
+	ohho = read(ca, msg, sizeof(msg));
+	msg[ohho] = 0;
+	FILE *fp2 = fopen("./servercert.pem", "w");
+	fputs(msg, fp2);
+	fclose(fp2);
+	close(ca);
     //SSL stuff
     SSL_CTX *ctx;
 	SSL *ssl;
@@ -232,6 +253,3 @@ int main(int argc, char *argv[]){
 		}
 	}
 }
-
-//Generate certificate, private key to be signed 
-// int i = system("yes '' | openssl req -config openssl-server.cnf -newkey rsa:2048 -sha256 -nodes -out servercert.csr -outform PEM");

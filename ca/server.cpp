@@ -10,7 +10,7 @@
 #include <arpa/inet.h>
 #include <mcrypt.h>
 
-#define CA_PORT 5010 //Port for CA signing/exchange
+#define CA_PORT 5011 //Port for CA signing/exchange
 #define BUFFER_SIZE 10000 //Maximum size per message
 
 using namespace std;
@@ -36,13 +36,13 @@ int main(){
 	memset(&serv_addr, '0', sizeof(serv_addr)); 
 	serv_addr.sin_family = AF_INET;
 	serv_addr.sin_addr.s_addr = htonl(INADDR_ANY);
-	serv_addr.sin_port = htons(KDC_PORT); 
+	serv_addr.sin_port = htons(CA_PORT); 
 	bind(listenfd, (struct sockaddr*)&serv_addr, sizeof(serv_addr)); 
 	listen(listenfd, 15);
 	while(1){
 		connfd = accept(listenfd, (struct sockaddr*)NULL, NULL);
 		char* STRTOK_SHARED;
-		oho = 0;
+		ohho = 0;
 		memset(buffer,'0',sizeof(buffer));
 		ohho = read(connfd,buffer,sizeof(buffer));
 		buffer[ohho] = 0;
@@ -50,15 +50,24 @@ int main(){
 		// Extract command type from incoming data
 		char *pch = strtok_r(buffer," ", &STRTOK_SHARED);
 		string command(pch);
-		if(!command.compare("/CHECK_CA")){
-			//Receive certificate
-			//Check it's validity
-		}   
-		else if(!command.compare("/CSR")){
-			//Receive certificate, sign it
-			// Extract certificate and save it
-			sys_ret = system("yes | openssl ca -config ca_files/openssl-ca.cnf -policy signing_policy -extensions signing_req -out servercert.pem -infiles servercert.csr");
-			send_data("sign ho gaya, re",connfd);
+		if(!command.compare("/CSR")){
+			// Extract certificate, save to file
+			string certificate(STRTOK_SHARED);
+			ofstream out("servercert.csr");
+			out << certificate;
+    		out.close();
+    		// Sign certificate
+			sys_ret = system("yes | openssl ca -config ca_files/openssl-ca.cnf -policy signing_policy -extensions signing_req -out servercert.pem -infiles servercert.csr >> /dev/null");
+			sleep(2);
+			//Read file
+			ifstream is("servercert.pem");
+			string read_cert;
+			is.seekg(0, ios::end);
+			read_cert.resize(is.tellg());
+			is.seekg(0, ios::beg);
+			is.read(&read_cert[0], read_cert.size());
+			is.close();
+			send_data(read_cert.c_str(),connfd);
 		}
 		else{
 			send_data("invalid request",connfd);   
