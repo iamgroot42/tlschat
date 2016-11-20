@@ -1,4 +1,5 @@
 // Author : iamgroot42
+
 #include <bits/stdc++.h>
 #include <stdio.h>
 #include <unistd.h>
@@ -10,15 +11,11 @@
 #include <openssl/ssl.h>
 #include <openssl/err.h>
 #include <arpa/inet.h>
-#include <mcrypt.h>
 
 #define CA_PORT 5011 //Port for CA signing/exchange
 #define TLS_PORT 5022 //Port for p2p communication
 #define RELAY_PORT 5013 //Port for establishing communication with peer
 #define BUFFER_SIZE 10000 //Maximum size per message
-#define USER_FILENAME "users" //Filename containing username & passwords
-#define CHALLENGE "potato"
-#define HARDCODED_IV "0123456789123456"
 
 bool logged_in = false, tls_established = false;
 SSL_CTX *ctx_glob;
@@ -26,59 +23,15 @@ SSL *ssl_glob;
 
 using namespace std;
 
-string encrypt(string data, string keye, string IVe){
-    int buffer_len = 16;
-    int mbl = buffer_len*((data.length()/buffer_len) + 1);
-    char* bass = (char*)calloc(1, mbl);
-    strncpy(bass, data.c_str(), data.length());
-    char *IV = strdup(IVe.c_str()), *key = strdup(keye.c_str());
-    int key_len = keye.length();
-    char* bufferr = (char*)calloc(1, buffer_len);
-    string output = "";
-    for(int i=0; i < mbl; i += buffer_len){
-        memcpy(bufferr, bass+i, buffer_len);
-        void* buffer = (void*)bufferr;
-        MCRYPT td = mcrypt_module_open("rijndael-128", NULL, "cbc", NULL);
-        mcrypt_generic_init(td, key, key_len, IV);
-        mcrypt_generic(td, buffer, buffer_len);
-        mcrypt_generic_deinit(td);
-        mcrypt_module_close(td);
-        output = output + (char*)buffer;
-    }
-    return output;
-}
-
-string decrypt(string data, string keye, string IVe){ 
-    int buffer_len = 16;
-    int mbl = data.length();
-    char* bass = (char*)data.c_str();
-    // strncpy(bass, data.c_str(), data.length());
-    char *IV = strdup(IVe.c_str()), *key = strdup(keye.c_str());
-    int key_len = keye.length();
-    char* bufferr = (char*)calloc(1, buffer_len);
-    string output = "";
-    for(int i=0; i < mbl; i += buffer_len){
-        memcpy(bufferr, bass+i, buffer_len);
-        void* buffer = (void*)bufferr;
-        MCRYPT td = mcrypt_module_open("rijndael-128", NULL, "cbc", NULL);
-        mcrypt_generic_init(td, key, key_len, IV);
-        mdecrypt_generic(td, buffer, buffer_len);
-        mcrypt_generic_deinit(td);
-        mcrypt_module_close(td);
-        output = output + (char*)buffer;
-    }
-    return output;
-}
-
 // Send data back to the client
 int send_data(string data, int sock)
 {
-    const char* commy = data.c_str();
-    if( (write(sock, commy, strlen(commy)) < 0) )
-    {
-        return 0;
-    }
-    return 1;
+	const char* commy = data.c_str();
+	if( (write(sock, commy, strlen(commy)) < 0) )
+	{
+		return 0;
+	}
+	return 1;
 }
 
 // Create a socket connection for the given IP and port
@@ -112,7 +65,7 @@ int OpenListener(int port){
 		perror("Can't bind port");
 		abort();
 	}
-    if(listen(sd, 10) != 0){
+	if(listen(sd, 10) != 0){
 		perror("Can't configure listening port");
 		abort();
 	}
@@ -179,14 +132,13 @@ void* server_feedback(void* void_listenfd){
 		ohho = read(listenfd,buffer,sizeof(buffer));
 		buffer[ohho] = 0;
 		char *pch = strtok_r(buffer," ", &STRTOK_SHARED);
-		cout<<">> "<<buffer;
+		cout<<">> "<<buffer<<endl;
 		if(!strcmp(pch,"/listen")){
 			tls_init = 1;
 			close(listenfd);
 		}
 		else if(!strcmp(pch,"Signed-in!")){
 			logged_in = true;
-			cout<<">> Signed in!"<<buffer;
 		}
 	}
 	//Start listening for incoming TLS connections
@@ -201,11 +153,12 @@ void* server_feedback(void* void_listenfd){
 	SSL_set_fd(ssl_glob, client);
 	SSL_accept(ssl_glob);
 	tls_established = true;
+	cout<<">> You may now start talking!"<<endl;
 	while(1){
 		bytes = SSL_read(ssl_glob, buffer, sizeof(buffer));
 		if(bytes > 0){
 			buffer[bytes] = 0;
-			cout<<">> "<<buffer<<endl;
+			cout<<">> "<<buffer;
 		}
 	}
 }
@@ -235,9 +188,9 @@ int main(int argc, char *argv[]){
 	relay = create_socket_and_connect(argv[1], RELAY_PORT);
 	ca = create_socket_and_connect(argv[1], CA_PORT);
 	pthread_t pot,pot2;
-    pthread_create(&pot, NULL, server_feedback, (void*)relay);
-    // Generate a CSR, get it signed by CA
-    cout<<">> CSR sent to CA. Please wait..."<<endl;
+	pthread_create(&pot, NULL, server_feedback, (void*)relay);
+	// Generate a CSR, get it signed by CA
+	cout<<">> CSR sent to CA. Please wait..."<<endl;
 	system("yes '' | openssl req -config openssl-server.cnf -newkey rsa:2048 -sha256 -nodes -out servercert.csr -outform PEM  > /dev/null 2>&1");
 	sleep(2);
 	FILE *fp = fopen("./servercert.csr","r");
@@ -272,6 +225,7 @@ int main(int argc, char *argv[]){
 			server = create_socket_and_connect("127.0.0.1", TLS_PORT);
 			SSL_set_fd(ssl_glob, server);
 			SSL_connect(ssl_glob);
+			cout<<">> You may now start talking!"<<endl;
 			//Start listening for messages from peer
 			pthread_create(&pot2, NULL, incoming_tls_data, NULL);
 		}
@@ -283,9 +237,7 @@ int main(int argc, char *argv[]){
 				cout<<">> Already logged in!"<<endl;
 			}
 			else{
-				string iv(HARDCODED_IV);
-				string challenge(CHALLENGE);
-				string send = "/login " + username + " " + encrypt(challenge,password,iv);
+				string send = "/login " + username + " " + password;
 				if(!send_data(send, relay)){
 					cout<<">> Error logging-in. Please try again."<<endl;
 				}
@@ -296,7 +248,7 @@ int main(int argc, char *argv[]){
 			close(relay);
 			SSL_CTX_free(ctx_glob); //Release context
 			close(server);
-			cout<<">> Exiting!\nThanks for using IRsea!"<<endl;
+			cout<<">> Exiting!\nThanks for using tlschat!"<<endl;
 			return 0;
 		}
 		else if(!command.compare("/msg")){

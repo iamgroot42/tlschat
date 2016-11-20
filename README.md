@@ -40,9 +40,12 @@ Multi-user chat based on TLS, with mutual authentication using X.509 certificate
 
 ### Example (for client)
 ```
->> Welcome to kdchat!
+>> CSR sent to CA. Please wait...
+>> Certificate signed!
 /login test user
+>> Signed-in!
 /connect hello
-/msg hello what's up?
->> (hello) munch. you?
+>> You may now start talking!
+/msg what's up?
+>>  nothing much, you?
 ```
